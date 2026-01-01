@@ -14,10 +14,11 @@
 // under standard cryptographic assumptions (see [Larsson] for examples).
 //
 // References:
-//   [Coron]
-//     https://cs.nyu.edu/~dodis/ps/merkle.pdf
-//   [Larsson]
-//     https://www.nada.kth.se/kurser/kth/2D1441/semteo03/lecturenotes/assump.pdf
+//
+//	[Coron]
+//	  https://cs.nyu.edu/~dodis/ps/merkle.pdf
+//	[Larsson]
+//	  https://www.nada.kth.se/kurser/kth/2D1441/semteo03/lecturenotes/assump.pdf
 package ecc
 
 // Further references:
@@ -37,17 +38,6 @@ import (
 	"io"
 	"math/big"
 )
-
-// A invertible implements fast inverse mod Curve.Params().N
-type invertible interface {
-	// Inverse returns the inverse of k in GF(P)
-	Inverse(k *big.Int) *big.Int
-}
-
-// combinedMult implements fast multiplication S1*g + S2*p (g - generator, p - arbitrary point)
-type combinedMult interface {
-	CombinedMult(bigX, bigY *big.Int, baseScalar, scalar []byte) (x, y *big.Int)
-}
 
 const (
 	aesIV = "IV for ECDSA CTR"
@@ -170,11 +160,7 @@ func sign(priv *ecdsa.PrivateKey, csprng *cipher.StreamReader, c elliptic.Curve,
 				return
 			}
 
-			if in, ok := priv.Curve.(invertible); ok {
-				kInv = in.Inverse(k)
-			} else {
-				kInv = fermatInverse(k, N) // N != 0
-			}
+			kInv = fermatInverse(k, N) // N != 0
 
 			r, y = priv.Curve.ScalarBaseMult(k.Bytes())
 			if r.Cmp(N) == 1 {
@@ -233,11 +219,7 @@ func verify(pub *ecdsa.PublicKey, c elliptic.Curve, hash []byte, r, s *big.Int) 
 	e := hashToInt(hash, c)
 	var w *big.Int
 	N := c.Params().N
-	if in, ok := c.(invertible); ok {
-		w = in.Inverse(s)
-	} else {
-		w = new(big.Int).ModInverse(s, N)
-	}
+	w = new(big.Int).ModInverse(s, N)
 
 	u1 := e.Mul(e, w)
 	u1.Mod(u1, N)
@@ -246,13 +228,9 @@ func verify(pub *ecdsa.PublicKey, c elliptic.Curve, hash []byte, r, s *big.Int) 
 
 	// Check if implements S1*g + S2*p
 	var x, y *big.Int
-	if opt, ok := c.(combinedMult); ok {
-		x, y = opt.CombinedMult(pub.X, pub.Y, u1.Bytes(), u2.Bytes())
-	} else {
-		x1, y1 := c.ScalarBaseMult(u1.Bytes())
-		x2, y2 := c.ScalarMult(pub.X, pub.Y, u2.Bytes())
-		x, y = c.Add(x1, y1, x2, y2)
-	}
+	x1, y1 := c.ScalarBaseMult(u1.Bytes())
+	x2, y2 := c.ScalarMult(pub.X, pub.Y, u2.Bytes())
+	x, y = c.Add(x1, y1, x2, y2)
 
 	if x.Sign() == 0 && y.Sign() == 0 {
 		return false

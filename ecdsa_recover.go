@@ -96,11 +96,7 @@ func computePointFromX(param *elliptic.CurveParams, A, x *big.Int, recid byte) (
 func recoverPubkey(curve elliptic.Curve, e, r, y, s *big.Int) (*ecdsa.PublicKey, error) {
 	param := curve.Params()
 	var w *big.Int
-	if in, ok := curve.(invertible); ok {
-		w = in.Inverse(r)
-	} else {
-		w = new(big.Int).ModInverse(r, param.N)
-	}
+	w = new(big.Int).ModInverse(r, param.N)
 
 	e.Sub(param.N, e)
 	u1 := e.Mul(e, w)
@@ -109,13 +105,9 @@ func recoverPubkey(curve elliptic.Curve, e, r, y, s *big.Int) (*ecdsa.PublicKey,
 	u2.Mod(u2, param.N)
 
 	// Check if implements S1*g + S2*p
-	if opt, ok := curve.(combinedMult); ok {
-		e, s = opt.CombinedMult(r, y, u1.Bytes(), u2.Bytes())
-	} else {
-		x1, y1 := curve.ScalarBaseMult(u1.Bytes())
-		x2, y2 := curve.ScalarMult(r, y, u2.Bytes())
-		e, s = curve.Add(x1, y1, x2, y2)
-	}
+	x1, y1 := curve.ScalarBaseMult(u1.Bytes())
+	x2, y2 := curve.ScalarMult(r, y, u2.Bytes())
+	e, s = curve.Add(x1, y1, x2, y2)
 
 	if e.Sign() <= 0 || s.Sign() <= 0 {
 		return nil, fmt.Errorf("Invalid public key (%s, %s)", s.String(), w.String())
