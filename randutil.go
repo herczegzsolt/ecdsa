@@ -8,12 +8,7 @@ package ecc
 
 import (
 	"io"
-	"sync"
-)
-
-var (
-	closedChanOnce sync.Once
-	closedChan     chan struct{}
+	"math/rand/v2"
 )
 
 // MaybeReadByte reads a single byte from r with ~50% probability. This is used
@@ -23,16 +18,9 @@ var (
 // This does not affect tests that pass a stream of fixed bytes as the random
 // source (e.g. a zeroReader).
 func MaybeReadByte(r io.Reader) {
-	closedChanOnce.Do(func() {
-		closedChan = make(chan struct{})
-		close(closedChan)
-	})
-
-	select {
-	case <-closedChan:
+	if rand.Uint64()&1 == 1 {
 		return
-	case <-closedChan:
-		var buf [1]byte
-		r.Read(buf[:])
 	}
+	var buf [1]byte
+	r.Read(buf[:])
 }
