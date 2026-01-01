@@ -4,7 +4,7 @@
 
 // Package randutil contains internal randomness utilities for various
 // crypto packages.
-package ecc
+package ecdsa
 
 import (
 	"io"

@@ -1,4 +1,4 @@
-// Copyright 2011 The Go Authors. All rights reserved.
+// Copyright (c) 2026 Multiple Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -19,7 +19,7 @@
 //	  https://cs.nyu.edu/~dodis/ps/merkle.pdf
 //	[Larsson]
 //	  https://www.nada.kth.se/kurser/kth/2D1441/semteo03/lecturenotes/assump.pdf
-package ecc
+package ecdsa
 
 // Further references:
 //   [NSA]: Suite B implementer's guide to FIPS 186-3

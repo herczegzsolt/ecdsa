@@ -1,3 +1,3 @@
-module github.com/dustinxie/ecc
+module github.com/herczegzsolt/ecdsa
 
-go 1.16
+go 1.25

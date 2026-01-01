@@ -1,10 +1,10 @@
-// Copyright 2010 The Go Authors. All rights reserved.
+// Copyright (c) 2026 Multiple Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
 // Package elliptic implements several standard elliptic curves over prime
 // fields.
-package ecc
+package ecdsa
 
 // This package operates, internally, on Jacobian coordinates. For a given
 // (x, y) position on the curve, the Jacobian coordinates are (x1, y1, z1)

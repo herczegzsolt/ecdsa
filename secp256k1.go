@@ -1,9 +1,9 @@
-// Copyright (c) 2021 dustinxie. All rights reserved.
+// Copyright (c) 2026 Multiple Authors. All rights reserved.
 //
 // Use of this source code is governed by MIT license
 // that can be found in the LICENSE file.
 
-package ecc
+package ecdsa
 
 import (
 	"crypto/elliptic"
