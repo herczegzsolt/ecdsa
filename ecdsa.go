@@ -28,7 +28,6 @@ package ecdsa
 //     http://www.secg.org/sec1-v2.pdf
 
 import (
-	"crypto/subtle"
 	"errors"
 	"io"
 	"math/big"
@@ -83,7 +82,7 @@ var errZeroParam = errors.New("zero parameter")
 // returns the ASN.1 encoded signature. The security of the private key
 // depends on the entropy of csprng.
 func SignASN1(csprng io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
-	MaybeReadByte(csprng)
+	maybeReadByte(csprng)
 
 	// A cheap version of hedged signatures, for the deprecated path.
 	var seed [32]byte
@@ -106,6 +105,7 @@ func SignASN1(csprng io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
 	return encodeSignature(r.Bytes(), s.Bytes())
 }
 
+// sign is the actual implementation of ECDSA signing via math.big functions
 func sign(priv *PrivateKey, csprng io.Reader, hash []byte) (r, s *big.Int, err error) {
 	c := priv.Curve
 	N := c.Params().N
@@ -196,12 +196,6 @@ func (pub *PublicKey) Equal(x *PublicKey) bool {
 	return bigIntEqual(pub.X, x.X) && bigIntEqual(pub.Y, x.Y) && pub.Curve.Equal(x.Curve)
 }
 
-// bigIntEqual reports whether a and b are equal leaking only their bit length
-// through timing side-channels.
-func bigIntEqual(a, b *big.Int) bool {
-	return subtle.ConstantTimeCompare(a.Bytes(), b.Bytes()) == 1
-}
-
 // PrivateKey represents an ECDSA private key.
 type PrivateKey struct {
 	PublicKey
@@ -210,6 +204,13 @@ type PrivateKey struct {
 	//
 	// Modifying the raw value can produce invalid keys.
 	D *big.Int
+}
+
+// Equal reports whether priv and x have the same value.
+//
+// Two keys are only considered to have the same value if they have the same Curve value.
+func (priv *PrivateKey) Equal(x *PrivateKey) bool {
+	return bigIntEqual(priv.D, x.D) && priv.PublicKey.Equal(&x.PublicKey)
 }
 
 // Verify verifies the signature in r, s of hash using the public key, pub. Its
