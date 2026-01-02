@@ -6,22 +6,20 @@
 package ecdsa
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"math/big"
 	"testing"
 )
 
 func TestRecoverPubkey(t *testing.T) {
-	for _, curve := range []elliptic.Curve{
-		elliptic.P224(),
-		elliptic.P256(),
-		elliptic.P384(),
-		elliptic.P521(),
+	for _, curve := range []Curve{
+		P224(),
+		P256(),
+		P384(),
+		P521(),
 		P256k1(),
 	} {
-		privKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+		privKey, err := GenerateKey(curve, rand.Reader)
 		if err != nil {
 			panic(err)
 		}
@@ -54,9 +52,9 @@ func TestRecoverPubkey(t *testing.T) {
 }
 
 // returns 2 pubkeys, first is the correct one, second is a key with tampered r
-func testRecoverPubkey(t *testing.T, param *elliptic.CurveParams, hash, sig []byte, flag byte) *ecdsa.PublicKey {
+func testRecoverPubkey(t *testing.T, param *CurveParams, hash, sig []byte, flag byte) *PublicKey {
 	var (
-		k, k1 *ecdsa.PublicKey
+		k, k1 *PublicKey
 		err   error
 	)
 

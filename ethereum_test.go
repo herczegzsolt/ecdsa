@@ -7,8 +7,6 @@ package ecdsa
 
 import (
 	"bytes"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"testing"
@@ -18,7 +16,7 @@ func TestEther(t *testing.T) {
 	curve := P256k1()
 	param := curve.Params()
 	for i := 0; i < 16; i++ {
-		privKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+		privKey, err := GenerateKey(curve, rand.Reader)
 		if err != nil {
 			panic(err)
 		}
@@ -31,8 +29,8 @@ func TestEther(t *testing.T) {
 
 		// verify both uncompressed and compressed public key
 		pubkey := make([][]byte, 2)
-		pubkey[0] = elliptic.Marshal(curve, privKey.X, privKey.Y)
-		pubkey[1] = elliptic.MarshalCompressed(curve, privKey.X, privKey.Y)
+		pubkey[0] = Marshal(curve, privKey.X, privKey.Y)
+		pubkey[1] = MarshalCompressed(curve, privKey.X, privKey.Y)
 		for _, pk := range pubkey {
 			if VerifyEthereum(pk[:len(pk)-1], msg[:], sig[:64], false) {
 				t.Error("VerifyEthereum passed with wrong public key length")

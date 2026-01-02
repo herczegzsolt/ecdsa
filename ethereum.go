@@ -6,8 +6,6 @@
 package ecdsa
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"errors"
 	"math/big"
 )
@@ -24,7 +22,7 @@ var (
 // caller is responsible to ensure that the given hash cannot be
 // chosen directly by an attacker. Common solution is to hash any
 // input before calculating the signature
-func SignEthereum(hash []byte, priv *ecdsa.PrivateKey) ([]byte, error) {
+func SignEthereum(hash []byte, priv *PrivateKey) ([]byte, error) {
 	if len(hash) != 32 {
 		return nil, ErrInvalidLength
 	}
@@ -62,13 +60,13 @@ func VerifyEthereum(pubkey, hash, sig []byte, isHomestead bool) bool {
 	if keyLen == 33 {
 		x, y = UnmarshalCompressed(curve, pubkey)
 	} else {
-		x, y = elliptic.Unmarshal(curve, pubkey)
+		x, y = Unmarshal(curve, pubkey)
 	}
 	if x == nil || y == nil {
 		return false
 	}
 
-	pk := &ecdsa.PublicKey{
+	pk := &PublicKey{
 		Curve: curve,
 		X:     x,
 		Y:     y,
@@ -93,5 +91,5 @@ func RecoverEthereum(hash, sig []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return elliptic.Marshal(curve, pk.X, pk.Y), nil
+	return Marshal(curve, pk.X, pk.Y), nil
 }

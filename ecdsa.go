@@ -30,13 +30,15 @@ package ecdsa
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha512"
+	"crypto/subtle"
 	"errors"
 	"io"
 	"math/big"
+
+	"golang.org/x/crypto/cryptobyte"
+	"golang.org/x/crypto/cryptobyte/asn1"
 )
 
 const (
@@ -47,7 +49,7 @@ var one = new(big.Int).SetInt64(1)
 
 // randFieldElement returns a random element of the field underlying the given
 // curve using the procedure given in [NSA] A.2.1.
-func randFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error) {
+func randFieldElement(c Curve, rand io.Reader) (k *big.Int, err error) {
 	params := c.Params()
 	b := make([]byte, params.BitSize/8+8)
 	_, err = io.ReadFull(rand, b)
@@ -68,7 +70,7 @@ func randFieldElement(c elliptic.Curve, rand io.Reader) (k *big.Int, err error) 
 // first. We follow [SECG] because that's what OpenSSL does. Additionally,
 // OpenSSL right shifts excess bits from the number if the hash is too large
 // and we mirror that too.
-func hashToInt(hash []byte, c elliptic.Curve) *big.Int {
+func hashToInt(hash []byte, c Curve) *big.Int {
 	orderBits := c.Params().N.BitLen()
 	orderBytes := (orderBits + 7) / 8
 	if len(hash) > orderBytes {
@@ -100,7 +102,7 @@ var errZeroParam = errors.New("zero parameter")
 // private key's curve order, the hash will be truncated to that length. It
 // returns the signature as a pair of integers. The security of the private key
 // depends on the entropy of rand.
-func Sign(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (r, s *big.Int, recid byte, err error) {
+func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, recid byte, err error) {
 	MaybeReadByte(rand)
 
 	// Get min(log2(q) / 2, 256) bits of entropy from rand.
@@ -146,7 +148,7 @@ func Sign(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) (r, s *big.Int, r
 // recid = 1: x = r, y is odd
 // recid = 2: x = r+N, y is even
 // recid = 3: x = r+N, y is odd
-func sign(priv *ecdsa.PrivateKey, csprng *cipher.StreamReader, c elliptic.Curve, hash []byte) (r, s *big.Int, recid byte, err error) {
+func sign(priv *PrivateKey, csprng *cipher.StreamReader, c Curve, hash []byte) (r, s *big.Int, recid byte, err error) {
 	N := c.Params().N
 	if N.Sign() == 0 {
 		return nil, nil, 0, errZeroParam
@@ -195,54 +197,12 @@ func sign(priv *ecdsa.PrivateKey, csprng *cipher.StreamReader, c elliptic.Curve,
 // private key's curve order, the hash will be truncated to that length. It
 // returns the ASN.1 encoded signature. The security of the private key
 // depends on the entropy of rand.
-func SignASN1(rand io.Reader, priv *ecdsa.PrivateKey, hash []byte) ([]byte, error) {
-	return priv.Sign(rand, hash, nil)
-}
-
-// Verify verifies the signature in r, s of hash using the public key, pub. Its
-// return value records whether the signature is valid.
-func Verify(pub *ecdsa.PublicKey, hash []byte, r, s *big.Int) bool {
-	// See [NSA] 3.4.2
-	c := pub.Curve
-	N := c.Params().N
-
-	if r.Sign() <= 0 || s.Sign() <= 0 {
-		return false
+func SignASN1(rand io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
+	r, s, _, err := Sign(rand, priv, hash)
+	if err != nil {
+		return nil, err
 	}
-	if r.Cmp(N) >= 0 || s.Cmp(N) >= 0 {
-		return false
-	}
-	return verify(pub, c, hash, r, s)
-}
-
-func verify(pub *ecdsa.PublicKey, c elliptic.Curve, hash []byte, r, s *big.Int) bool {
-	e := hashToInt(hash, c)
-	var w *big.Int
-	N := c.Params().N
-	w = new(big.Int).ModInverse(s, N)
-
-	u1 := e.Mul(e, w)
-	u1.Mod(u1, N)
-	u2 := w.Mul(r, w)
-	u2.Mod(u2, N)
-
-	// Check if implements S1*g + S2*p
-	var x, y *big.Int
-	x1, y1 := c.ScalarBaseMult(u1.Bytes())
-	x2, y2 := c.ScalarMult(pub.X, pub.Y, u2.Bytes())
-	x, y = c.Add(x1, y1, x2, y2)
-
-	if x.Sign() == 0 && y.Sign() == 0 {
-		return false
-	}
-	x.Mod(x, N)
-	return x.Cmp(r) == 0
-}
-
-// VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the
-// public key, pub. Its return value records whether the signature is valid.
-func VerifyASN1(pub *ecdsa.PublicKey, hash, sig []byte) bool {
-	return ecdsa.VerifyASN1(pub, hash, sig)
+	return encodeSignature(r.Bytes(), s.Bytes())
 }
 
 type zr struct {
@@ -272,7 +232,7 @@ const (
 )
 
 // SignBytes returns the signature in bytes
-func SignBytes(priv *ecdsa.PrivateKey, hash []byte, flag byte) ([]byte, error) {
+func SignBytes(priv *PrivateKey, hash []byte, flag byte) ([]byte, error) {
 	r, s, v, err := Sign(rand.Reader, priv, hash)
 	if err != nil {
 		return nil, err
@@ -298,7 +258,7 @@ func SignBytes(priv *ecdsa.PrivateKey, hash []byte, flag byte) ([]byte, error) {
 }
 
 // VerifyBytes verifies the signature in bytes
-func VerifyBytes(pub *ecdsa.PublicKey, hash, sig []byte, flag byte) bool {
+func VerifyBytes(pub *PublicKey, hash, sig []byte, flag byte) bool {
 	param := pub.Curve.Params()
 	r, s, v := decodeSigBytes(param, sig)
 	if v == invalidSigLength {
@@ -318,10 +278,10 @@ func VerifyBytes(pub *ecdsa.PublicKey, hash, sig []byte, flag byte) bool {
 	if (flag&LowerS) != 0 && s.Cmp(new(big.Int).Rsh(param.N, 1)) == 1 {
 		return false
 	}
-	return ecdsa.Verify(pub, hash, r, s)
+	return Verify(pub, hash, r, s)
 }
 
-func decodeSigBytes(param *elliptic.CurveParams, sig []byte) (r, s *big.Int, recid byte) {
+func decodeSigBytes(param *CurveParams, sig []byte) (r, s *big.Int, recid byte) {
 	rSize := (param.BitSize + 7) >> 3
 
 	switch len(sig) {
@@ -339,4 +299,143 @@ func decodeSigBytes(param *elliptic.CurveParams, sig []byte) (r, s *big.Int, rec
 	r = new(big.Int).SetBytes(sig[:rSize])
 	s = new(big.Int).SetBytes(sig[rSize : 2*rSize])
 	return
+}
+
+func GenerateKey(c Curve, rand io.Reader) (*PrivateKey, error) {
+	k, err := randFieldElement(c, rand)
+	if err != nil {
+		return nil, err
+	}
+
+	priv := new(PrivateKey)
+	priv.PublicKey.Curve = c
+	priv.D = k
+	priv.PublicKey.X, priv.PublicKey.Y = c.ScalarBaseMult(k.Bytes())
+	return priv, nil
+}
+
+// PublicKey represents an ECDSA public key.
+type PublicKey struct {
+	Curve Curve
+
+	// X, Y are the coordinates of the public key point.
+	//
+	// Modifying the raw coordinates can produce invalid keys
+	X, Y *big.Int
+}
+
+// Equal reports whether pub and x have the same value.
+//
+// Two keys are only considered to have the same value if they have the same Curve value.
+func (pub *PublicKey) Equal(x *PublicKey) bool {
+	return bigIntEqual(pub.X, x.X) && bigIntEqual(pub.Y, x.Y) && pub.Curve.Equal(x.Curve)
+}
+
+// bigIntEqual reports whether a and b are equal leaking only their bit length
+// through timing side-channels.
+func bigIntEqual(a, b *big.Int) bool {
+	return subtle.ConstantTimeCompare(a.Bytes(), b.Bytes()) == 1
+}
+
+// PrivateKey represents an ECDSA private key.
+type PrivateKey struct {
+	PublicKey
+
+	// D is the private scalar value.
+	//
+	// Modifying the raw value can produce invalid keys.
+	D *big.Int
+}
+
+// Verify verifies the signature in r, s of hash using the public key, pub. Its
+// return value records whether the signature is valid. Most applications should
+// use VerifyASN1 instead of dealing directly with r, s.
+func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
+	if r.Sign() <= 0 || s.Sign() <= 0 {
+		return false
+	}
+	sig, err := encodeSignature(r.Bytes(), s.Bytes())
+	if err != nil {
+		return false
+	}
+	return VerifyASN1(pub, hash, sig)
+}
+
+func encodeSignature(r, s []byte) ([]byte, error) {
+	var b cryptobyte.Builder
+	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
+		addASN1IntBytes(b, r)
+		addASN1IntBytes(b, s)
+	})
+	return b.Bytes()
+}
+
+// VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the
+// public key, pub. Its return value records whether the signature is valid.
+func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
+	rBytes, sBytes, err := parseSignature(sig)
+	if err != nil {
+		return false
+	}
+	r, s := new(big.Int).SetBytes(rBytes), new(big.Int).SetBytes(sBytes)
+
+	c := pub.Curve
+	N := c.Params().N
+
+	if r.Sign() <= 0 || s.Sign() <= 0 {
+		return false
+	}
+	if r.Cmp(N) >= 0 || s.Cmp(N) >= 0 {
+		return false
+	}
+
+	// SEC 1, Version 2.0, Section 4.1.4
+	e := hashToInt(hash, c)
+	w := new(big.Int).ModInverse(s, N)
+
+	u1 := e.Mul(e, w)
+	u1.Mod(u1, N)
+	u2 := w.Mul(r, w)
+	u2.Mod(u2, N)
+
+	x1, y1 := c.ScalarBaseMult(u1.Bytes())
+	x2, y2 := c.ScalarMult(pub.X, pub.Y, u2.Bytes())
+	x, y := c.Add(x1, y1, x2, y2)
+
+	if x.Sign() == 0 && y.Sign() == 0 {
+		return false
+	}
+	x.Mod(x, N)
+	return x.Cmp(r) == 0
+}
+
+func parseSignature(sig []byte) (r, s []byte, err error) {
+	var inner cryptobyte.String
+	input := cryptobyte.String(sig)
+	if !input.ReadASN1(&inner, asn1.SEQUENCE) ||
+		!input.Empty() ||
+		!inner.ReadASN1Integer(&r) ||
+		!inner.ReadASN1Integer(&s) ||
+		!inner.Empty() {
+		return nil, nil, errors.New("invalid ASN.1")
+	}
+	return r, s, nil
+}
+
+// addASN1IntBytes encodes in ASN.1 a positive integer represented as
+// a big-endian byte slice with zero or more leading zeroes.
+func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
+	for len(bytes) > 0 && bytes[0] == 0 {
+		bytes = bytes[1:]
+	}
+	if len(bytes) == 0 {
+		b.SetError(errors.New("invalid integer"))
+		return
+	}
+	b.AddASN1(asn1.INTEGER, func(c *cryptobyte.Builder) {
+		if bytes[0]&0x80 != 0 {
+			c.AddUint8(0)
+		}
+		c.AddBytes(bytes)
+	})
 }

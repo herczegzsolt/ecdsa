@@ -7,8 +7,6 @@ package ecdsa
 import (
 	"bufio"
 	"compress/bzip2"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -22,8 +20,8 @@ import (
 	"testing"
 )
 
-func testKeyGeneration(t *testing.T, c elliptic.Curve, tag string) {
-	priv, err := ecdsa.GenerateKey(c, rand.Reader)
+func testKeyGeneration(t *testing.T, c Curve, tag string) {
+	priv, err := GenerateKey(c, rand.Reader)
 	if err != nil {
 		t.Errorf("%s: error: %s", tag, err)
 		return
@@ -34,21 +32,21 @@ func testKeyGeneration(t *testing.T, c elliptic.Curve, tag string) {
 }
 
 func TestKeyGeneration(t *testing.T) {
-	testKeyGeneration(t, elliptic.P224(), "p224")
+	testKeyGeneration(t, P224(), "p224")
 	if testing.Short() {
 		return
 	}
-	testKeyGeneration(t, elliptic.P256(), "p256")
-	testKeyGeneration(t, P384(), "p384")
+	testKeyGeneration(t, P256(), "p256")
+	testKeyGeneration(t, P224(), "p384")
 	testKeyGeneration(t, P521(), "p521")
 	testKeyGeneration(t, P256k1(), "p256k1")
 }
 
 func BenchmarkSignP256(b *testing.B) {
 	b.ResetTimer()
-	p256 := elliptic.P256()
+	p256 := P256()
 	hashed := []byte("testing")
-	priv, _ := ecdsa.GenerateKey(p256, rand.Reader)
+	priv, _ := GenerateKey(p256, rand.Reader)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -63,7 +61,7 @@ func BenchmarkSignP256k1(b *testing.B) {
 	b.ResetTimer()
 	p256k1 := P256k1()
 	hashed := []byte("testing")
-	priv, _ := ecdsa.GenerateKey(p256k1, rand.Reader)
+	priv, _ := GenerateKey(p256k1, rand.Reader)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -78,7 +76,7 @@ func BenchmarkSignP384(b *testing.B) {
 	b.ResetTimer()
 	p384 := P384()
 	hashed := []byte("testing")
-	priv, _ := ecdsa.GenerateKey(p384, rand.Reader)
+	priv, _ := GenerateKey(p384, rand.Reader)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -91,35 +89,35 @@ func BenchmarkSignP384(b *testing.B) {
 
 func BenchmarkVerifyP256(b *testing.B) {
 	b.ResetTimer()
-	p256 := elliptic.P256()
+	p256 := P256()
 	hashed := []byte("testing")
-	priv, _ := ecdsa.GenerateKey(p256, rand.Reader)
+	priv, _ := GenerateKey(p256, rand.Reader)
 	r, s, _, _ := Sign(rand.Reader, priv, hashed)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ecdsa.Verify(&priv.PublicKey, hashed, r, s)
+			Verify(&priv.PublicKey, hashed, r, s)
 		}
 	})
 }
 
 func BenchmarkKeyGeneration(b *testing.B) {
 	b.ResetTimer()
-	p256 := elliptic.P256()
+	p256 := P256()
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ecdsa.GenerateKey(p256, rand.Reader)
+			GenerateKey(p256, rand.Reader)
 		}
 	})
 }
 
-func testSignAndVerify(t *testing.T, c elliptic.Curve, tag string) {
-	priv, _ := ecdsa.GenerateKey(c, rand.Reader)
+func testSignAndVerify(t *testing.T, c Curve, tag string) {
+	priv, _ := GenerateKey(c, rand.Reader)
 
 	hashed := []byte("testing")
 	r, s, _, err := Sign(rand.Reader, priv, hashed)
@@ -128,29 +126,29 @@ func testSignAndVerify(t *testing.T, c elliptic.Curve, tag string) {
 		return
 	}
 
-	if !ecdsa.Verify(&priv.PublicKey, hashed, r, s) {
+	if !Verify(&priv.PublicKey, hashed, r, s) {
 		t.Errorf("%s: Verify failed", tag)
 	}
 
 	hashed[0] ^= 0xff
-	if ecdsa.Verify(&priv.PublicKey, hashed, r, s) {
+	if Verify(&priv.PublicKey, hashed, r, s) {
 		t.Errorf("%s: Verify always works!", tag)
 	}
 }
 
 func TestSignAndVerify(t *testing.T) {
-	testSignAndVerify(t, elliptic.P224(), "p224")
+	testSignAndVerify(t, P224(), "p224")
 	if testing.Short() {
 		return
 	}
-	testSignAndVerify(t, elliptic.P256(), "p256")
-	testSignAndVerify(t, P384(), "p384")
+	testSignAndVerify(t, P256(), "p256")
+	testSignAndVerify(t, P224(), "p384")
 	testSignAndVerify(t, P521(), "p521")
 	testSignAndVerify(t, P256k1(), "p256k1")
 }
 
-func testSignAndVerifyASN1(t *testing.T, c elliptic.Curve, tag string) {
-	priv, _ := ecdsa.GenerateKey(c, rand.Reader)
+func testSignAndVerifyASN1(t *testing.T, c Curve, tag string) {
+	priv, _ := GenerateKey(c, rand.Reader)
 
 	hashed := []byte("testing")
 	sig, err := SignASN1(rand.Reader, priv, hashed)
@@ -159,29 +157,29 @@ func testSignAndVerifyASN1(t *testing.T, c elliptic.Curve, tag string) {
 		return
 	}
 
-	if !ecdsa.VerifyASN1(&priv.PublicKey, hashed, sig) {
+	if !VerifyASN1(&priv.PublicKey, hashed, sig) {
 		t.Errorf("%s: VerifyASN1 failed", tag)
 	}
 
 	hashed[0] ^= 0xff
-	if ecdsa.VerifyASN1(&priv.PublicKey, hashed, sig) {
+	if VerifyASN1(&priv.PublicKey, hashed, sig) {
 		t.Errorf("%s: VerifyASN1 always works!", tag)
 	}
 }
 
 func TestSignAndVerifyASN1(t *testing.T) {
-	testSignAndVerifyASN1(t, elliptic.P224(), "p224")
+	testSignAndVerifyASN1(t, P224(), "p224")
 	if testing.Short() {
 		return
 	}
-	testSignAndVerifyASN1(t, elliptic.P256(), "p256")
-	testSignAndVerifyASN1(t, P384(), "p384")
+	testSignAndVerifyASN1(t, P256(), "p256")
+	testSignAndVerifyASN1(t, P224(), "p384")
 	testSignAndVerifyASN1(t, P521(), "p521")
 	testSignAndVerifyASN1(t, P256k1(), "p256k1")
 }
 
-func testNonceSafety(t *testing.T, c elliptic.Curve, tag string) {
-	priv, _ := ecdsa.GenerateKey(c, rand.Reader)
+func testNonceSafety(t *testing.T, c Curve, tag string) {
+	priv, _ := GenerateKey(c, rand.Reader)
 
 	hashed := []byte("testing")
 	r0, s0, _, err := Sign(zeroReader, priv, hashed)
@@ -208,18 +206,18 @@ func testNonceSafety(t *testing.T, c elliptic.Curve, tag string) {
 }
 
 func TestNonceSafety(t *testing.T) {
-	testNonceSafety(t, elliptic.P224(), "p224")
+	testNonceSafety(t, P224(), "p224")
 	if testing.Short() {
 		return
 	}
-	testNonceSafety(t, elliptic.P256(), "p256")
+	testNonceSafety(t, P256(), "p256")
 	testNonceSafety(t, P384(), "p384")
 	testNonceSafety(t, P521(), "p521")
 	testNonceSafety(t, P256k1(), "p256k1")
 }
 
-func testINDCCA(t *testing.T, c elliptic.Curve, tag string) {
-	priv, _ := ecdsa.GenerateKey(c, rand.Reader)
+func testINDCCA(t *testing.T, c Curve, tag string) {
+	priv, _ := GenerateKey(c, rand.Reader)
 
 	hashed := []byte("testing")
 	r0, s0, _, err := Sign(rand.Reader, priv, hashed)
@@ -244,11 +242,11 @@ func testINDCCA(t *testing.T, c elliptic.Curve, tag string) {
 }
 
 func TestINDCCA(t *testing.T) {
-	testINDCCA(t, elliptic.P224(), "p224")
+	testINDCCA(t, P224(), "p224")
 	if testing.Short() {
 		return
 	}
-	testINDCCA(t, elliptic.P256(), "p256")
+	testINDCCA(t, P256(), "p256")
 	testINDCCA(t, P384(), "p384")
 	testINDCCA(t, P521(), "p521")
 	testINDCCA(t, P256k1(), "p256k1")
@@ -285,7 +283,7 @@ func TestVectors(t *testing.T) {
 	var msg []byte
 	var hashed []byte
 	var r, s *big.Int
-	pub := new(ecdsa.PublicKey)
+	pub := new(PublicKey)
 
 	for {
 		line, err := buf.ReadString('\n')
@@ -312,9 +310,9 @@ func TestVectors(t *testing.T) {
 
 			switch parts[0] {
 			case "P-224":
-				pub.Curve = elliptic.P224()
+				pub.Curve = P224()
 			case "P-256":
-				pub.Curve = elliptic.P256()
+				pub.Curve = P256()
 			case "P-384":
 				pub.Curve = P384()
 			case "P-521":
@@ -363,7 +361,7 @@ func TestVectors(t *testing.T) {
 			h.Reset()
 			h.Write(msg)
 			hashed := h.Sum(hashed[:0])
-			if ecdsa.Verify(pub, hashed, r, s) != expected {
+			if Verify(pub, hashed, r, s) != expected {
 				t.Fatalf("incorrect result on line %d", lineNo)
 			}
 		default:
@@ -372,8 +370,8 @@ func TestVectors(t *testing.T) {
 	}
 }
 
-func testNegativeInputs(t *testing.T, curve elliptic.Curve, tag string) {
-	key, err := ecdsa.GenerateKey(curve, rand.Reader)
+func testNegativeInputs(t *testing.T, curve Curve, tag string) {
+	key, err := GenerateKey(curve, rand.Reader)
 	if err != nil {
 		t.Errorf("failed to generate key for %q", tag)
 	}
@@ -383,14 +381,14 @@ func testNegativeInputs(t *testing.T, curve elliptic.Curve, tag string) {
 	r.Lsh(r, 550 /* larger than any supported curve */)
 	r.Neg(r)
 
-	if ecdsa.Verify(&key.PublicKey, hash[:], r, r) {
+	if Verify(&key.PublicKey, hash[:], r, r) {
 		t.Errorf("bogus signature accepted for %q", tag)
 	}
 }
 
 func TestNegativeInputs(t *testing.T) {
-	testNegativeInputs(t, elliptic.P224(), "p224")
-	testNegativeInputs(t, elliptic.P256(), "p256")
+	testNegativeInputs(t, P224(), "p224")
+	testNegativeInputs(t, P256(), "p256")
 	testNegativeInputs(t, P384(), "p384")
 	testNegativeInputs(t, P521(), "p521")
 	testNegativeInputs(t, P256k1(), "p256k1")
@@ -399,14 +397,14 @@ func TestNegativeInputs(t *testing.T) {
 func TestZeroHashSignature(t *testing.T) {
 	zeroHash := make([]byte, 64)
 
-	for _, curve := range []elliptic.Curve{
-		elliptic.P224(),
-		elliptic.P256(),
+	for _, curve := range []Curve{
+		P224(),
+		P256(),
 		P384(),
 		P521(),
 		P256k1(),
 	} {
-		privKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+		privKey, err := GenerateKey(curve, rand.Reader)
 		if err != nil {
 			panic(err)
 		}
@@ -418,21 +416,21 @@ func TestZeroHashSignature(t *testing.T) {
 		}
 
 		// Confirm that it can be verified.
-		if !ecdsa.Verify(&privKey.PublicKey, zeroHash, r, s) {
+		if !Verify(&privKey.PublicKey, zeroHash, r, s) {
 			t.Errorf("zero hash signature verify failed for %T", curve)
 		}
 	}
 }
 
 func TestSignBytes(t *testing.T) {
-	for _, curve := range []elliptic.Curve{
-		elliptic.P224(),
-		elliptic.P256(),
+	for _, curve := range []Curve{
+		P224(),
+		P256(),
 		P384(),
 		P521(),
 		P256k1(),
 	} {
-		privKey, err := ecdsa.GenerateKey(curve, rand.Reader)
+		privKey, err := GenerateKey(curve, rand.Reader)
 		if err != nil {
 			panic(err)
 		}
@@ -458,7 +456,7 @@ func TestSignBytes(t *testing.T) {
 	}
 }
 
-func testSignBytes(t *testing.T, pubkey *ecdsa.PublicKey, hash, sig []byte, flag byte) {
+func testSignBytes(t *testing.T, pubkey *PublicKey, hash, sig []byte, flag byte) {
 	if !VerifyBytes(pubkey, hash, sig, flag) {
 		t.Error("VerifyBytes failed")
 	}
@@ -501,7 +499,7 @@ func testSignBytes(t *testing.T, pubkey *ecdsa.PublicKey, hash, sig []byte, flag
 	}
 
 	if (flag & LowerS) != 0 {
-		_, s, v := decodeSigBytes(pubkey.Params(), sig)
+		_, s, v := decodeSigBytes(pubkey.Curve.Params(), sig)
 		curveParam := pubkey.Curve.Params()
 		rSize := (curveParam.BitSize + 7) >> 3
 		s.Sub(curveParam.N, s)

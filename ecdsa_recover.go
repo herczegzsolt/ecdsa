@@ -6,27 +6,25 @@
 package ecdsa
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"fmt"
 	"math/big"
 )
 
 // RecoverPubkey recovers the public key from the signature
-func RecoverPubkey(name string, hash, sig []byte) (*ecdsa.PublicKey, error) {
+func RecoverPubkey(name string, hash, sig []byte) (*PublicKey, error) {
 	var (
-		curve elliptic.Curve
+		curve Curve
 		A     = big.NewInt(-3)
 	)
 	switch name {
 	case "P-224":
-		curve = elliptic.P224()
+		curve = P224()
 	case "P-256":
-		curve = elliptic.P256()
+		curve = P256()
 	case "P-384":
-		curve = elliptic.P384()
+		curve = P384()
 	case "P-521":
-		curve = elliptic.P521()
+		curve = P521()
 	case "P-256k1":
 		curve = P256k1()
 		A = new(big.Int)
@@ -72,7 +70,7 @@ func RecoverPubkey(name string, hash, sig []byte) (*ecdsa.PublicKey, error) {
 	return recoverPubkey(curve, hashToInt(hash, curve), r, y, s)
 }
 
-func computePointFromX(param *elliptic.CurveParams, A, x *big.Int, recid byte) (*big.Int, *big.Int) {
+func computePointFromX(param *CurveParams, A, x *big.Int, recid byte) (*big.Int, *big.Int) {
 	if recid >= 2 {
 		x.Add(param.N, x)
 		if x.Cmp(param.P) >= 0 {
@@ -93,7 +91,7 @@ func computePointFromX(param *elliptic.CurveParams, A, x *big.Int, recid byte) (
 	return x, x3
 }
 
-func recoverPubkey(curve elliptic.Curve, e, r, y, s *big.Int) (*ecdsa.PublicKey, error) {
+func recoverPubkey(curve Curve, e, r, y, s *big.Int) (*PublicKey, error) {
 	param := curve.Params()
 	var w *big.Int
 	w = new(big.Int).ModInverse(r, param.N)
@@ -112,7 +110,7 @@ func recoverPubkey(curve elliptic.Curve, e, r, y, s *big.Int) (*ecdsa.PublicKey,
 	if e.Sign() <= 0 || s.Sign() <= 0 {
 		return nil, fmt.Errorf("Invalid public key (%s, %s)", s.String(), w.String())
 	}
-	return &ecdsa.PublicKey{
+	return &PublicKey{
 		Curve: curve,
 		X:     e,
 		Y:     s,

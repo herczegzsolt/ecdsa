@@ -6,8 +6,6 @@
 package ecdsa
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
@@ -28,11 +26,11 @@ func TestP256k1Signature(t *testing.T) {
 	// 0x41 = 65, followed by 65-byte uncompressed public key
 	Pkscript, _ := hex.DecodeString("410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac")
 	p256k1 := P256k1()
-	x, y := elliptic.Unmarshal(p256k1, Pkscript[1:1+int(Pkscript[0])])
+	x, y := Unmarshal(p256k1, Pkscript[1:1+int(Pkscript[0])])
 	if x == nil || y == nil {
 		t.Error("failed to unmarshal public key")
 	}
-	pubkey := &ecdsa.PublicKey{
+	pubkey := &PublicKey{
 		Curve: p256k1,
 		X:     x,
 		Y:     y,
@@ -73,7 +71,7 @@ func TestP256k1Signature(t *testing.T) {
 	hash = sha256.Sum256(hash[:])
 
 	// verify the signature
-	if !ecdsa.Verify(pubkey, hash[:], r, s) {
+	if !Verify(pubkey, hash[:], r, s) {
 		t.Error("failed to verify P256-k1 signature")
 	}
 }

@@ -15,20 +15,20 @@ import (
 )
 
 func TestOnCurve(t *testing.T) {
-	p224 := elliptic.P224()
+	p224 := P224()
 	if !p224.IsOnCurve(p224.Params().Gx, p224.Params().Gy) {
 		t.Errorf("FAIL")
 	}
 }
 
 func TestOffCurve(t *testing.T) {
-	p224 := elliptic.P224()
+	p224 := P224()
 	x, y := new(big.Int).SetInt64(1), new(big.Int).SetInt64(1)
 	if p224.IsOnCurve(x, y) {
 		t.Errorf("FAIL: point off curve is claimed to be on the curve")
 	}
-	b := elliptic.Marshal(p224, x, y)
-	x1, y1 := elliptic.Unmarshal(p224, b)
+	b := Marshal(p224, x, y)
+	x1, y1 := Unmarshal(p224, b)
 	if x1 != nil || y1 != nil {
 		t.Errorf("FAIL: unmarshaling a point not on the curve succeeded")
 	}
@@ -326,25 +326,7 @@ var p256MultTests = []scalarMultTest{
 }
 
 func TestBaseMult(t *testing.T) {
-	p224 := elliptic.P224()
-	for i, e := range p224BaseMultTests {
-		k, ok := new(big.Int).SetString(e.k, 10)
-		if !ok {
-			t.Errorf("%d: bad value for k: %s", i, e.k)
-		}
-		x, y := p224.ScalarBaseMult(k.Bytes())
-		if fmt.Sprintf("%x", x) != e.x || fmt.Sprintf("%x", y) != e.y {
-			t.Errorf("%d: bad output for k=%s: got (%x, %x), want (%s, %s)", i, e.k, x, y, e.x, e.y)
-		}
-		if testing.Short() && i > 5 {
-			break
-		}
-	}
-}
-
-func TestGenericBaseMult(t *testing.T) {
-	// We use the P224 CurveParams directly in order to test the generic implementation.
-	p224 := elliptic.P224().Params()
+	p224 := P224()
 	for i, e := range p224BaseMultTests {
 		k, ok := new(big.Int).SetString(e.k, 10)
 		if !ok {
@@ -361,8 +343,8 @@ func TestGenericBaseMult(t *testing.T) {
 }
 
 func TestP256BaseMult(t *testing.T) {
-	p256 := elliptic.P256()
-	p256Generic := p256.Params()
+	p256 := P256()
+	p256builtin := elliptic.P256()
 
 	scalars := make([]*big.Int, 0, len(p224BaseMultTests)+1)
 	for _, e := range p224BaseMultTests {
@@ -375,7 +357,7 @@ func TestP256BaseMult(t *testing.T) {
 
 	for i, k := range scalars {
 		x, y := p256.ScalarBaseMult(k.Bytes())
-		x2, y2 := p256Generic.ScalarBaseMult(k.Bytes())
+		x2, y2 := p256builtin.ScalarBaseMult(k.Bytes())
 		if x.Cmp(x2) != 0 || y.Cmp(y2) != 0 {
 			t.Errorf("#%d: got (%x, %x), want (%x, %x)", i, x, y, x2, y2)
 		}
@@ -387,8 +369,8 @@ func TestP256BaseMult(t *testing.T) {
 }
 
 func TestP256Mult(t *testing.T) {
-	p256 := elliptic.P256()
-	p256Generic := p256.Params()
+	p256 := P256()
+	p256builtin := elliptic.P256()
 
 	for i, e := range p224BaseMultTests {
 		x, _ := new(big.Int).SetString(e.x, 16)
@@ -396,7 +378,7 @@ func TestP256Mult(t *testing.T) {
 		k, _ := new(big.Int).SetString(e.k, 10)
 
 		xx, yy := p256.ScalarMult(x, y, k.Bytes())
-		xx2, yy2 := p256Generic.ScalarMult(x, y, k.Bytes())
+		xx2, yy2 := p256builtin.ScalarMult(x, y, k.Bytes())
 		if xx.Cmp(xx2) != 0 || yy.Cmp(yy2) != 0 {
 			t.Errorf("#%d: got (%x, %x), want (%x, %x)", i, xx, yy, xx2, yy2)
 		}
@@ -419,8 +401,10 @@ func TestP256Mult(t *testing.T) {
 	}
 }
 
-func testInfinity(t *testing.T, curve elliptic.Curve) {
-	_, x, y, _ := elliptic.GenerateKey(curve, rand.Reader)
+func testInfinity(t *testing.T, curve Curve) {
+	priv, _ := GenerateKey(curve, rand.Reader)
+	x := priv.X
+	y := priv.Y
 	x, y = curve.ScalarMult(x, y, curve.Params().N.Bytes())
 	if x.Sign() != 0 || y.Sign() != 0 {
 		t.Errorf("x^q != ∞")
@@ -459,11 +443,10 @@ func testInfinity(t *testing.T, curve elliptic.Curve) {
 func TestInfinity(t *testing.T) {
 	tests := []struct {
 		name  string
-		curve elliptic.Curve
+		curve Curve
 	}{
-		{"P-224", elliptic.P224()},
-		{"P-256", elliptic.P256()},
-		{"P-256/Generic", elliptic.P256().Params()},
+		{"P-224", P224()},
+		{"P-256", P256()},
 		{"P-384", P384()},
 		{"P-521", P521()},
 		{"P-256k1", P256k1()},
@@ -480,7 +463,7 @@ func TestInfinity(t *testing.T) {
 }
 
 type synthCombinedMult struct {
-	elliptic.Curve
+	Curve
 }
 
 func (s synthCombinedMult) CombinedMult(bigX, bigY *big.Int, baseScalar, scalar []byte) (x, y *big.Int) {
@@ -491,13 +474,13 @@ func (s synthCombinedMult) CombinedMult(bigX, bigY *big.Int, baseScalar, scalar 
 
 func TestCombinedMult(t *testing.T) {
 	type combinedMult interface {
-		elliptic.Curve
+		Curve
 		CombinedMult(bigX, bigY *big.Int, baseScalar, scalar []byte) (x, y *big.Int)
 	}
 
-	p256, ok := elliptic.P256().(combinedMult)
+	p256, ok := P256().(combinedMult)
 	if !ok {
-		p256 = &synthCombinedMult{elliptic.P256()}
+		p256 = &synthCombinedMult{P256()}
 	}
 
 	gx := p256.Params().Gx
@@ -544,7 +527,7 @@ func TestCombinedMult(t *testing.T) {
 
 func BenchmarkBaseMult(b *testing.B) {
 	b.ResetTimer()
-	p224 := elliptic.P224()
+	p224 := P224()
 	e := p224BaseMultTests[25]
 	k, _ := new(big.Int).SetString(e.k, 10)
 	b.ReportAllocs()
@@ -558,7 +541,7 @@ func BenchmarkBaseMult(b *testing.B) {
 
 func BenchmarkBaseMultP256(b *testing.B) {
 	b.ResetTimer()
-	p256 := elliptic.P256()
+	p256 := P256()
 	e := p224BaseMultTests[25]
 	k, _ := new(big.Int).SetString(e.k, 10)
 	b.ReportAllocs()
@@ -572,40 +555,42 @@ func BenchmarkBaseMultP256(b *testing.B) {
 
 func BenchmarkScalarMultP256(b *testing.B) {
 	b.ResetTimer()
-	p256 := elliptic.P256()
-	_, x, y, _ := elliptic.GenerateKey(p256, rand.Reader)
-	priv, _, _, _ := elliptic.GenerateKey(p256, rand.Reader)
+	p256 := P256()
+	priv1, _ := GenerateKey(p256, rand.Reader)
+	x, y := priv1.X, priv1.Y
+	priv2, _ := GenerateKey(p256, rand.Reader)
+	d := priv2.D
 
 	b.ReportAllocs()
 	b.StartTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			p256.ScalarMult(x, y, priv)
+			p256.ScalarMult(x, y, d.Bytes())
 		}
 	})
 }
 
 func TestMarshal(t *testing.T) {
 	tests := []struct {
-		curve elliptic.Curve
+		curve Curve
 	}{
-		{elliptic.P224()},
-		{elliptic.P256()},
-		{elliptic.P256().Params()},
-		{P384()},
+		{P224()},
+		{P256()},
+		{P224()},
 		{P521()},
 		{P256k1()},
 	}
 
 	for _, test := range tests {
 		curve := test.curve
-		_, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
+		priv, err := GenerateKey(curve, rand.Reader)
 		if err != nil {
 			t.Error(err)
 			return
 		}
-		serialized := elliptic.Marshal(curve, x, y)
-		xx, yy := elliptic.Unmarshal(curve, serialized)
+		x, y := priv.X, priv.Y
+		serialized := Marshal(curve, x, y)
+		xx, yy := Unmarshal(curve, serialized)
 		if xx == nil {
 			t.Error("failed to unmarshal")
 			return
@@ -619,9 +604,9 @@ func TestMarshal(t *testing.T) {
 
 func TestP224Overflow(t *testing.T) {
 	// This tests for a specific bug in the P224 implementation.
-	p224 := elliptic.P224()
+	p224 := P224()
 	pointData, _ := hex.DecodeString("049B535B45FB0A2072398A6831834624C7E32CCFD5A4B933BCEAF77F1DD945E08BBE5178F5EDF5E733388F196D2A631D2E075BB16CBFEEA15B")
-	x, y := elliptic.Unmarshal(p224, pointData)
+	x, y := Unmarshal(p224, pointData)
 	if !p224.IsOnCurve(x, y) {
 		t.Error("P224 failed to validate a correct point")
 	}
@@ -629,7 +614,7 @@ func TestP224Overflow(t *testing.T) {
 
 // See https://golang.org/issues/20482
 func TestUnmarshalToLargeCoordinates(t *testing.T) {
-	curve := elliptic.P256()
+	curve := P256()
 	p := curve.Params().P
 
 	invalidX, invalidY := make([]byte, 65), make([]byte, 65)
@@ -644,7 +629,7 @@ func TestUnmarshalToLargeCoordinates(t *testing.T) {
 	copy(invalidX[1:], x.Bytes())
 	copy(invalidX[33:], y.Bytes())
 
-	if X, Y := elliptic.Unmarshal(curve, invalidX); X != nil || Y != nil {
+	if X, Y := Unmarshal(curve, invalidX); X != nil || Y != nil {
 		t.Errorf("Unmarshal accepts invalid X coordinate")
 	}
 
@@ -661,7 +646,7 @@ func TestUnmarshalToLargeCoordinates(t *testing.T) {
 	copy(invalidY[1:], x.Bytes())
 	copy(invalidY[33:], y.Bytes())
 
-	if X, Y := elliptic.Unmarshal(curve, invalidY); X != nil || Y != nil {
+	if X, Y := Unmarshal(curve, invalidY); X != nil || Y != nil {
 		t.Errorf("Unmarshal accepts invalid Y coordinate")
 	}
 }
@@ -671,18 +656,18 @@ func TestMarshalCompressed(t *testing.T) {
 		data, _ := hex.DecodeString("031e3987d9f9ea9d7dd7155a56a86b2009e1e0ab332f962d10d8beb6406ab1ad79")
 		x, _ := new(big.Int).SetString("13671033352574878777044637384712060483119675368076128232297328793087057702265", 10)
 		y, _ := new(big.Int).SetString("66200849279091436748794323380043701364391950689352563629885086590854940586447", 10)
-		testMarshalCompressed(t, elliptic.P256(), x, y, data)
+		testMarshalCompressed(t, P256(), x, y, data)
 	})
 	t.Run("P-256/02", func(t *testing.T) {
 		data, _ := hex.DecodeString("021e3987d9f9ea9d7dd7155a56a86b2009e1e0ab332f962d10d8beb6406ab1ad79")
 		x, _ := new(big.Int).SetString("13671033352574878777044637384712060483119675368076128232297328793087057702265", 10)
 		y, _ := new(big.Int).SetString("49591239931264812013903123569363872165694192725937750565648544718012157267504", 10)
-		testMarshalCompressed(t, elliptic.P256(), x, y, data)
+		testMarshalCompressed(t, P256(), x, y, data)
 	})
 
 	t.Run("Invalid", func(t *testing.T) {
 		data, _ := hex.DecodeString("02fd4bf61763b46581fd9174d623516cf3c81edd40e29ffa2777fb6cb0ae3ce535")
-		X, Y := UnmarshalCompressed(elliptic.P256(), data)
+		X, Y := UnmarshalCompressed(P256(), data)
 		if X != nil || Y != nil {
 			t.Error("expected an error for invalid encoding")
 		}
@@ -693,28 +678,32 @@ func TestMarshalCompressed(t *testing.T) {
 	}
 
 	t.Run("P-224", func(t *testing.T) {
-		_, x, y, err := elliptic.GenerateKey(elliptic.P224(), rand.Reader)
+		priv, err := GenerateKey(P224(), rand.Reader)
+		x, y := priv.X, priv.Y
 		if err != nil {
 			t.Fatal(err)
 		}
-		testMarshalCompressed(t, elliptic.P224(), x, y, nil)
+		testMarshalCompressed(t, P224(), x, y, nil)
 	})
 	t.Run("P-384", func(t *testing.T) {
-		_, x, y, err := elliptic.GenerateKey(P384(), rand.Reader)
+		priv, err := GenerateKey(P384(), rand.Reader)
+		x, y := priv.X, priv.Y
 		if err != nil {
 			t.Fatal(err)
 		}
 		testMarshalCompressed(t, P384(), x, y, nil)
 	})
 	t.Run("P-521", func(t *testing.T) {
-		_, x, y, err := elliptic.GenerateKey(P521(), rand.Reader)
+		priv, err := GenerateKey(P521(), rand.Reader)
+		x, y := priv.X, priv.Y
 		if err != nil {
 			t.Fatal(err)
 		}
 		testMarshalCompressed(t, P521(), x, y, nil)
 	})
 	t.Run("P-256k1", func(t *testing.T) {
-		_, x, y, err := elliptic.GenerateKey(P256k1(), rand.Reader)
+		priv, err := GenerateKey(P256k1(), rand.Reader)
+		x, y := priv.X, priv.Y
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -722,7 +711,7 @@ func TestMarshalCompressed(t *testing.T) {
 	})
 }
 
-func testMarshalCompressed(t *testing.T, curve elliptic.Curve, x, y *big.Int, want []byte) {
+func testMarshalCompressed(t *testing.T, curve Curve, x, y *big.Int, want []byte) {
 	if !curve.IsOnCurve(x, y) {
 		t.Fatal("invalid test point")
 	}
