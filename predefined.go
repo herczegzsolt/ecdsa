@@ -10,7 +10,7 @@ var p224 *GenericCurve
 var p256 *GenericCurve
 var p384 *GenericCurve
 var p521 *GenericCurve
-var secp256k1 *GenericCurve
+var p256k1 *GenericCurve
 
 func initAll() {
 	initP224()
@@ -123,19 +123,19 @@ func P521() Curve {
 func initSecp256k1() {
 	// See https://www.secg.org/sec2-v2.pdf, section 2.4.1
 	// curve equation y² = x³ + 7
-	secp256k1 = new(GenericCurve)
-	secp256k1.p.Name = "P-256k1"
-	secp256k1.p.P, _ = new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
-	secp256k1.p.N, _ = new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
-	secp256k1.p.B = big.NewInt(7)
-	secp256k1.p.Gx, _ = new(big.Int).SetString("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", 16)
-	secp256k1.p.Gy, _ = new(big.Int).SetString("483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", 16)
-	secp256k1.p.A = big.NewInt(0)
-	secp256k1.p.BitSize = 256
+	p256k1 = new(GenericCurve)
+	p256k1.p.Name = "P-256k1"
+	p256k1.p.P, _ = new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16)
+	p256k1.p.N, _ = new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+	p256k1.p.B = big.NewInt(7)
+	p256k1.p.Gx, _ = new(big.Int).SetString("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", 16)
+	p256k1.p.Gy, _ = new(big.Int).SetString("483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", 16)
+	p256k1.p.A = big.NewInt(0)
+	p256k1.p.BitSize = 256
 }
 
 // P256k1 returns a Curve which implements secp256k1 (https://www.secg.org/sec2-v2.pdf, section 2.4.1),
-// also known as secp521k1. The CurveParams.Name of this Curve is "P-256k1".
+// The CurveParams.Name of this Curve is "P-256k1".
 //
 // Multiple invocations of this function will return the same value, so it can
 // be used for equality checks and switch statements.
@@ -143,5 +143,5 @@ func initSecp256k1() {
 // The cryptographic operations do not use constant-time algorithms.
 func P256k1() Curve {
 	initonce.Do(initAll)
-	return secp256k1
+	return p256k1
 }
