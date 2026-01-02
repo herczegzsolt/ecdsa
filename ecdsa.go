@@ -30,7 +30,6 @@ package ecdsa
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
 	"crypto/sha512"
 	"crypto/subtle"
 	"errors"
@@ -102,7 +101,7 @@ var errZeroParam = errors.New("zero parameter")
 // private key's curve order, the hash will be truncated to that length. It
 // returns the signature as a pair of integers. The security of the private key
 // depends on the entropy of rand.
-func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, recid byte, err error) {
+func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
 	MaybeReadByte(rand)
 
 	// Get min(log2(q) / 2, 256) bits of entropy from rand.
@@ -127,7 +126,7 @@ func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, recid b
 	// Create an AES-CTR instance to use as a CSPRNG.
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 
 	// Create a CSPRNG that xors a stream of zeros with
@@ -148,12 +147,12 @@ func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, recid b
 // recid = 1: x = r, y is odd
 // recid = 2: x = r+N, y is even
 // recid = 3: x = r+N, y is odd
-func sign(priv *PrivateKey, csprng *cipher.StreamReader, c Curve, hash []byte) (r, s *big.Int, recid byte, err error) {
+func sign(priv *PrivateKey, csprng *cipher.StreamReader, c Curve, hash []byte) (r, s *big.Int, err error) {
 	N := c.Params().N
 	if N.Sign() == 0 {
-		return nil, nil, 0, errZeroParam
+		return nil, nil, errZeroParam
 	}
-	var k, kInv, y *big.Int
+	var k, kInv *big.Int
 	for {
 		for {
 			k, err = randFieldElement(c, *csprng)
@@ -164,17 +163,9 @@ func sign(priv *PrivateKey, csprng *cipher.StreamReader, c Curve, hash []byte) (
 
 			kInv = fermatInverse(k, N) // N != 0
 
-			r, y = priv.Curve.ScalarBaseMult(k.Bytes())
-			if r.Cmp(N) == 1 {
-				// note this is exceedingly rare, the chance of happening is (P-N)/P
-				// for example, it is roughly 1/2^128 for P256-k1
-				recid = 2
-			} else {
-				recid = 0
-			}
+			r, _ = priv.Curve.ScalarBaseMult(k.Bytes())
 			r.Mod(r, N)
 			if r.Sign() != 0 {
-				recid += byte(y.Bit(0))
 				break
 			}
 		}
@@ -198,7 +189,7 @@ func sign(priv *PrivateKey, csprng *cipher.StreamReader, c Curve, hash []byte) (
 // returns the ASN.1 encoded signature. The security of the private key
 // depends on the entropy of rand.
 func SignASN1(rand io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
-	r, s, _, err := Sign(rand, priv, hash)
+	r, s, err := Sign(rand, priv, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -230,56 +221,6 @@ const (
 	normalSigLength  byte = 16
 	invalidSigLength byte = 255
 )
-
-// SignBytes returns the signature in bytes
-func SignBytes(priv *PrivateKey, hash []byte, flag byte) ([]byte, error) {
-	r, s, v, err := Sign(rand.Reader, priv, hash)
-	if err != nil {
-		return nil, err
-	}
-
-	// in case of LowerS, enforce s <= N/2 to prevent signature malleability
-	param := priv.Curve.Params()
-	if (flag&LowerS) != 0 && s.Cmp(new(big.Int).Rsh(param.N, 1)) > 0 {
-		s.Sub(param.N, s)
-		v ^= 1
-	}
-
-	// ECDSA returns 0 < r, s < N
-	rSize := (param.BitSize + 7) >> 3
-	sig := make([]byte, 2*rSize, 2*rSize+1)
-	r.FillBytes(sig[:rSize])
-	s.FillBytes(sig[rSize:])
-
-	if (flag & RecID) != 0 {
-		sig = append(sig, v)
-	}
-	return sig, nil
-}
-
-// VerifyBytes verifies the signature in bytes
-func VerifyBytes(pub *PublicKey, hash, sig []byte, flag byte) bool {
-	param := pub.Curve.Params()
-	r, s, v := decodeSigBytes(param, sig)
-	if v == invalidSigLength {
-		return false
-	}
-	if (flag & RecID) != 0 {
-		if v > 3 {
-			return false
-		}
-	} else {
-		if v != normalSigLength {
-			return false
-		}
-	}
-
-	// in case of LowerS, verify s <= N/2
-	if (flag&LowerS) != 0 && s.Cmp(new(big.Int).Rsh(param.N, 1)) == 1 {
-		return false
-	}
-	return Verify(pub, hash, r, s)
-}
 
 func decodeSigBytes(param *CurveParams, sig []byte) (r, s *big.Int, recid byte) {
 	rSize := (param.BitSize + 7) >> 3
