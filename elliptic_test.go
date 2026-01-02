@@ -27,7 +27,25 @@ func TestOffCurve(t *testing.T) {
 	if p224.IsOnCurve(x, y) {
 		t.Errorf("FAIL: point off curve is claimed to be on the curve")
 	}
-	b := Marshal(p224, x, y)
+	var ok bool
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ok = true
+			}
+		}() // panic is expected
+		_ = Marshal(p224, x, y)
+	}()
+	if !ok {
+		t.Errorf("FAIL: unmarshaling a point not on the curve did not panic")
+	}
+	byteLen := (p224.Params().BitSize + 7) / 8
+
+	b := make([]byte, 1+2*byteLen)
+	b[0] = 4 // uncompressed point
+	x.FillBytes(b[1 : 1+byteLen])
+	y.FillBytes(b[1+byteLen : 1+2*byteLen])
+
 	x1, y1 := Unmarshal(p224, b)
 	if x1 != nil || y1 != nil {
 		t.Errorf("FAIL: unmarshaling a point not on the curve succeeded")
@@ -370,23 +388,6 @@ func TestP256BaseMult(t *testing.T) {
 
 func TestP256Mult(t *testing.T) {
 	p256 := P256()
-	p256builtin := elliptic.P256()
-
-	for i, e := range p224BaseMultTests {
-		x, _ := new(big.Int).SetString(e.x, 16)
-		y, _ := new(big.Int).SetString(e.y, 16)
-		k, _ := new(big.Int).SetString(e.k, 10)
-
-		xx, yy := p256.ScalarMult(x, y, k.Bytes())
-		xx2, yy2 := p256builtin.ScalarMult(x, y, k.Bytes())
-		if xx.Cmp(xx2) != 0 || yy.Cmp(yy2) != 0 {
-			t.Errorf("#%d: got (%x, %x), want (%x, %x)", i, xx, yy, xx2, yy2)
-		}
-		if testing.Short() && i > 5 {
-			break
-		}
-	}
-
 	for i, e := range p256MultTests {
 		x, _ := new(big.Int).SetString(e.xIn, 16)
 		y, _ := new(big.Int).SetString(e.yIn, 16)
@@ -435,8 +436,8 @@ func testInfinity(t *testing.T, curve Curve) {
 		t.Errorf("∞+x != x")
 	}
 
-	if curve.IsOnCurve(x, y) {
-		t.Errorf("IsOnCurve(∞) == true")
+	if !curve.IsOnCurve(x, y) {
+		t.Errorf("IsOnCurve(∞) == false")
 	}
 }
 

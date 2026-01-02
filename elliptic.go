@@ -37,6 +37,9 @@ type Curve interface {
 	// ScalarBaseMult returns k*G, where G is the base point of the group
 	// and k is an integer in big-endian form.
 	ScalarBaseMult(k []byte) (x, y *big.Int)
+
+	// Polynomial returns x³ + ax + b.
+	Polynomial(x *big.Int) *big.Int
 }
 
 // CurveParams contains the parameters of an Curve y² = x³ + ax + b,
@@ -73,8 +76,8 @@ func (curve *GenericCurve) Equal(x Curve) bool {
 		curve.p.BitSize == xx.p.BitSize
 }
 
-// polynomial returns x³ + ax + b.
-func (curve *GenericCurve) polynomial(x *big.Int) *big.Int {
+// Polynomial returns x³ + ax + b.
+func (curve *GenericCurve) Polynomial(x *big.Int) *big.Int {
 	x3 := new(big.Int).Mul(x, x)
 	x3.Add(x3, curve.p.A) // x² + a
 	x3.Mul(x3, x)         // x³ + ax
@@ -84,12 +87,17 @@ func (curve *GenericCurve) polynomial(x *big.Int) *big.Int {
 }
 
 // IsOnCurve returns whether the point (x, y) lies on the curve or not
+// The conventional point (0, 0) returns true, unlike in the standard library.
 func (curve *GenericCurve) IsOnCurve(x, y *big.Int) bool {
+	if x.Sign() == 0 && y.Sign() == 0 {
+		return true
+	}
+
 	// y² = x³ + ax + b
 	y2 := new(big.Int).Mul(y, y)
 	y2.Mod(y2, curve.p.P)
 
-	return curve.polynomial(x).Cmp(y2) == 0
+	return curve.Polynomial(x).Cmp(y2) == 0
 }
 
 // zForAffine returns a Jacobian Z value for the affine point (x, y). If x and
@@ -293,51 +301,95 @@ func (curve *GenericCurve) ScalarBaseMult(k []byte) (*big.Int, *big.Int) {
 	return curve.ScalarMult(curve.p.Gx, curve.p.Gy, k)
 }
 
+// Marshal converts a point on the curve into the uncompressed form specified in
+// SEC 1, Version 2.0, Section 2.3.3. If the point is not on the curve, this
+// function will panic. The conventional point at (0,0) is encoded as []byte{0x00}
+// unlike in the standard library.
 func Marshal(curve Curve, x, y *big.Int) []byte {
-	panic("not implemented")
+	panicIfNotOnCurve(curve, x, y)
+
+	if x.Sign() == 0 && y.Sign() == 0 {
+		return []byte{0x00}
+	}
+
+	byteLen := (curve.Params().BitSize + 7) / 8
+
+	ret := make([]byte, 1+2*byteLen)
+	ret[0] = 4 // uncompressed point
+
+	x.FillBytes(ret[1 : 1+byteLen])
+	y.FillBytes(ret[1+byteLen : 1+2*byteLen])
+
+	return ret
 }
 
-func Unmarshal(curve Curve, data []byte) (*big.Int, *big.Int) {
-	panic("not implemented")
+// Unmarshal converts a point, serialized by [Marshal], into an x, y pair. It is
+// an error if the point is not in uncompressed form, or is not on the curve.
+// On error, x, y = nil, nil.
+func Unmarshal(curve Curve, data []byte) (x, y *big.Int) {
+	if len(data) == 0 && data[0] == 0x00 { // point at infinity
+		return big.NewInt(0), big.NewInt(0)
+	}
+
+	byteLen := (curve.Params().BitSize + 7) / 8
+	if len(data) != 1+2*byteLen {
+		return nil, nil
+	}
+	if data[0] != 4 { // uncompressed form flag
+		return nil, nil
+	}
+	p := curve.Params().P
+	x = new(big.Int).SetBytes(data[1 : 1+byteLen])
+	y = new(big.Int).SetBytes(data[1+byteLen:])
+	if x.Cmp(p) >= 0 || y.Cmp(p) >= 0 {
+		return nil, nil
+	}
+	if !curve.IsOnCurve(x, y) {
+		return nil, nil
+	}
+	return
 }
 
 // MarshalCompressed converts a point on the curve into the compressed form
-// specified in section 4.3.6 of ANSI X9.62.
+// specified in SEC 1, Version 2.0, Section 2.3.3. If the point is not on the
+// curve this function will panic. The conventional point at (0,0) is encoded as
+// []byte{0x00} unlike in the standard library.
 func MarshalCompressed(curve Curve, x, y *big.Int) []byte {
-	// marshall is same as that of elliptic package
-	//return elliptic.MarshalCompressed(curve, x, y)
-	panic("not implemented")
+	panicIfNotOnCurve(curve, x, y)
+
+	if x.Sign() == 0 && y.Sign() == 0 {
+		return []byte{0x00}
+	}
+
+	byteLen := (curve.Params().BitSize + 7) / 8
+	compressed := make([]byte, 1+byteLen)
+	compressed[0] = byte(y.Bit(0)) | 2
+	x.FillBytes(compressed[1:])
+	return compressed
 }
 
-// UnmarshalCompressed converts a point, serialized by MarshalCompressed, into an x, y pair.
-// It is an error if the point is not in compressed form or is not on the curve.
-// On error, x = nil.
+// UnmarshalCompressed converts a point, serialized by [MarshalCompressed], into
+// an x, y pair. It is an error if the point is not in compressed form or is not
+// on the curve. On error, x, y = nil, nil.
 func UnmarshalCompressed(curve Curve, data []byte) (x, y *big.Int) {
-	//switch v := curve.(type) {
-	//case secp256k1Curve:
-	//	return unmarshalCompressed(v.CurveParams, data)
-	//default:
-	//	return elliptic.UnmarshalCompressed(curve, data)
-	//}
-	panic("not implemented")
-}
+	if len(data) == 0 && data[0] == 0x00 { // point at infinity
+		return big.NewInt(0), big.NewInt(0)
+	}
 
-/*
-func unmarshalCompressed(params *CurveParams, data []byte) (x, y *big.Int) {
-	byteLen := (params.BitSize + 7) / 8
+	byteLen := (curve.Params().BitSize + 7) / 8
 	if len(data) != 1+byteLen {
 		return nil, nil
 	}
 	if data[0] != 2 && data[0] != 3 { // compressed form
 		return nil, nil
 	}
-	p := params.P
+	p := curve.Params().P
 	x = new(big.Int).SetBytes(data[1:])
 	if x.Cmp(p) >= 0 {
 		return nil, nil
 	}
 	// y² = x³ + ax + b
-	y = params.polynomial(x)
+	y = curve.Polynomial(x)
 	y = y.ModSqrt(y, p)
 	if y == nil {
 		return nil, nil
@@ -345,8 +397,16 @@ func unmarshalCompressed(params *CurveParams, data []byte) (x, y *big.Int) {
 	if byte(y.Bit(0)) != data[0]&1 {
 		y.Neg(y).Mod(y, p)
 	}
-	if !params.IsOnCurve(x, y) {
+	if !curve.IsOnCurve(x, y) {
 		return nil, nil
 	}
 	return
-}*/
+}
+
+func panicIfNotOnCurve(curve Curve, x, y *big.Int) {
+	// Unlike the go stanard library, this package choose the convention that
+	// the point at infinity is represented by (0,0) is on the curve.
+	if !curve.IsOnCurve(x, y) {
+		panic("herczegzsolt/ecdsa: attempted operation on invalid point")
+	}
+}
