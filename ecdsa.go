@@ -28,47 +28,38 @@ package ecdsa
 //     http://www.secg.org/sec1-v2.pdf
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/sha512"
 	"crypto/subtle"
 	"errors"
 	"io"
 	"math/big"
+	"math/rand/v2"
 
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/crypto/cryptobyte/asn1"
 )
 
-const (
-	aesIV = "IV for ECDSA CTR"
-)
-
-var one = new(big.Int).SetInt64(1)
-
-// randFieldElement returns a random element of the field underlying the given
-// curve using the procedure given in [NSA] A.2.1.
+// randFieldElement returns a random element of the order of the given
+// curve using the procedure given in FIPS 186-4, Appendix B.5.2.
 func randFieldElement(c Curve, rand io.Reader) (k *big.Int, err error) {
-	params := c.Params()
-	b := make([]byte, params.BitSize/8+8)
-	_, err = io.ReadFull(rand, b)
-	if err != nil {
-		return
+	for {
+		N := c.Params().N
+		b := make([]byte, (N.BitLen()+7)/8)
+		if _, err = io.ReadFull(rand, b); err != nil {
+			return
+		}
+		if excess := len(b)*8 - N.BitLen(); excess > 0 {
+			b[0] >>= excess
+		}
+		k = new(big.Int).SetBytes(b)
+		if k.Sign() != 0 && k.Cmp(N) < 0 {
+			return
+		}
 	}
-
-	k = new(big.Int).SetBytes(b)
-	n := new(big.Int).Sub(params.N, one)
-	k.Mod(k, n)
-	k.Add(k, one)
-	return
 }
 
-// hashToInt converts a hash value to an integer. There is some disagreement
-// about how this is done. [NSA] suggests that this is done in the obvious
-// manner, but [SECG] truncates the hash to the bit-length of the curve order
-// first. We follow [SECG] because that's what OpenSSL does. Additionally,
-// OpenSSL right shifts excess bits from the number if the hash is too large
-// and we mirror that too.
+// hashToInt converts a hash value to an integer. Per FIPS 186-4, Section 6.4,
+// we use the left-most bits of the hash to match the bit-length of the order of
+// the curve. This also performs Step 5 of SEC 1, Version 2.0, Section 4.1.3.
 func hashToInt(hash []byte, c Curve) *big.Int {
 	orderBits := c.Params().N.BitLen()
 	orderBytes := (orderBits + 7) / 8
@@ -84,70 +75,39 @@ func hashToInt(hash []byte, c Curve) *big.Int {
 	return ret
 }
 
-// fermatInverse calculates the inverse of k in GF(P) using Fermat's method.
-// This has better constant-time properties than Euclid's method (implemented
-// in math/big.Int.ModInverse) although math/big itself isn't strictly
-// constant-time so it's not perfect.
-func fermatInverse(k, N *big.Int) *big.Int {
-	two := big.NewInt(2)
-	nMinus2 := new(big.Int).Sub(N, two)
-	return new(big.Int).Exp(k, nMinus2, N)
-}
-
 var errZeroParam = errors.New("zero parameter")
 
-// Sign signs a hash (which should be the result of hashing a larger message)
+// SignASN1 signs a hash (which should be the result of hashing a larger message)
 // using the private key, priv. If the hash is longer than the bit-length of the
 // private key's curve order, the hash will be truncated to that length. It
-// returns the signature as a pair of integers. The security of the private key
-// depends on the entropy of rand.
-func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
-	MaybeReadByte(rand)
+// returns the ASN.1 encoded signature. The security of the private key
+// depends on the entropy of csprng.
+func SignASN1(csprng io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
+	MaybeReadByte(csprng)
 
-	// Get min(log2(q) / 2, 256) bits of entropy from rand.
-	entropylen := (priv.Curve.Params().BitSize + 7) / 16
-	if entropylen > 32 {
-		entropylen = 32
+	// A cheap version of hedged signatures, for the deprecated path.
+	var seed [32]byte
+	if _, err := io.ReadFull(csprng, seed[:]); err != nil {
+		return nil, err
 	}
-	entropy := make([]byte, entropylen)
-	_, err = io.ReadFull(rand, entropy)
+	for i, b := range priv.D.Bytes() {
+		seed[i%32] ^= b
+	}
+	for i, b := range hash {
+		seed[i%32] ^= b
+	}
+	csprng = rand.NewChaCha8(seed)
+
+	r, s, err := sign(priv, csprng, hash)
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	// Initialize an SHA-512 hash context; digest ...
-	md := sha512.New()
-	md.Write(priv.D.Bytes()) // the private key,
-	md.Write(entropy)        // the entropy,
-	md.Write(hash)           // and the input hash;
-	key := md.Sum(nil)[:32]  // and compute ChopMD-256(SHA-512),
-	// which is an indifferentiable MAC.
-
-	// Create an AES-CTR instance to use as a CSPRNG.
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Create a CSPRNG that xors a stream of zeros with
-	// the output of the AES-CTR instance.
-	csprng := cipher.StreamReader{
-		R: zeroReader,
-		S: cipher.NewCTR(block, []byte(aesIV)),
-	}
-
-	// See [NSA] 3.4.1
-	c := priv.PublicKey.Curve
-	return sign(priv, &csprng, c, hash)
+	return encodeSignature(r.Bytes(), s.Bytes())
 }
 
-// sign also returns a byte (recovery id) for public key recovery
-// let (x, y) be the co-ordinate of point R = k*G
-// recid = 0: x = r, y is even
-// recid = 1: x = r, y is odd
-// recid = 2: x = r+N, y is even
-// recid = 3: x = r+N, y is odd
-func sign(priv *PrivateKey, csprng *cipher.StreamReader, c Curve, hash []byte) (r, s *big.Int, err error) {
+func sign(priv *PrivateKey, csprng io.Reader, hash []byte) (r, s *big.Int, err error) {
+	c := priv.Curve
 	N := c.Params().N
 	if N.Sign() == 0 {
 		return nil, nil, errZeroParam
@@ -155,17 +115,17 @@ func sign(priv *PrivateKey, csprng *cipher.StreamReader, c Curve, hash []byte) (
 	var k, kInv *big.Int
 	for {
 		for {
-			k, err = randFieldElement(c, *csprng)
+			k, err = randFieldElement(c, csprng)
 			if err != nil {
 				r = nil
 				return
 			}
 
-			kInv = fermatInverse(k, N) // N != 0
+			kInv = new(big.Int).ModInverse(k, N)
 
 			r, _ = priv.Curve.ScalarBaseMult(k.Bytes())
 			r.Mod(r, N)
-			if r.Sign() != 0 {
+			if r.Sign() != 0 && kInv != nil {
 				break
 			}
 		}
@@ -179,67 +139,31 @@ func sign(priv *PrivateKey, csprng *cipher.StreamReader, c Curve, hash []byte) (
 			break
 		}
 	}
-
 	return
 }
 
-// SignASN1 signs a hash (which should be the result of hashing a larger message)
+// Sign signs a hash (which should be the result of hashing a larger message)
 // using the private key, priv. If the hash is longer than the bit-length of the
 // private key's curve order, the hash will be truncated to that length. It
-// returns the ASN.1 encoded signature. The security of the private key
-// depends on the entropy of rand.
-func SignASN1(rand io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
-	r, s, err := Sign(rand, priv, hash)
+// returns the signature as a pair of integers. Most applications should use
+// [SignASN1] instead of dealing directly with r, s.
+func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
+	sig, err := SignASN1(rand, priv, hash)
 	if err != nil {
-		return nil, err
-	}
-	return encodeSignature(r.Bytes(), s.Bytes())
-}
-
-type zr struct {
-	io.Reader
-}
-
-// Read replaces the contents of dst with zeros.
-func (z *zr) Read(dst []byte) (n int, err error) {
-	for i := range dst {
-		dst[i] = 0
-	}
-	return len(dst), nil
-}
-
-var zeroReader = &zr{}
-
-// signing options
-const (
-	Normal byte = 0
-	LowerS byte = 1 // return (r, s) with s <= N/2
-	RecID  byte = 2 // return recovery id in addition to (r, s)
-)
-
-const (
-	normalSigLength  byte = 16
-	invalidSigLength byte = 255
-)
-
-func decodeSigBytes(param *CurveParams, sig []byte) (r, s *big.Int, recid byte) {
-	rSize := (param.BitSize + 7) >> 3
-
-	switch len(sig) {
-	case 2 * rSize:
-		recid = normalSigLength
-	case 2*rSize + 1:
-		// recovery id is the last byte of sig bytes
-		recid = sig[len(sig)-1]
-	default:
-		// invalid sig length
-		recid = invalidSigLength
+		return nil, nil, err
 	}
 
-	// get (r, s) from sig bytes
-	r = new(big.Int).SetBytes(sig[:rSize])
-	s = new(big.Int).SetBytes(sig[rSize : 2*rSize])
-	return
+	r, s = new(big.Int), new(big.Int)
+	var inner cryptobyte.String
+	input := cryptobyte.String(sig)
+	if !input.ReadASN1(&inner, asn1.SEQUENCE) ||
+		!input.Empty() ||
+		!inner.ReadASN1Integer(r) ||
+		!inner.ReadASN1Integer(s) ||
+		!inner.Empty() {
+		return nil, nil, errors.New("invalid ASN.1 from SignASN1")
+	}
+	return r, s, nil
 }
 
 func GenerateKey(c Curve, rand io.Reader) (*PrivateKey, error) {
