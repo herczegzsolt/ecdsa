@@ -32,9 +32,6 @@ import (
 	"io"
 	"math/big"
 	"math/rand/v2"
-
-	"golang.org/x/crypto/cryptobyte"
-	"golang.org/x/crypto/cryptobyte/asn1"
 )
 
 // randFieldElement returns a random element of the order of the given
@@ -82,22 +79,7 @@ var errZeroParam = errors.New("zero parameter")
 // returns the ASN.1 encoded signature. The security of the private key
 // depends on the entropy of csprng.
 func SignASN1(csprng io.Reader, priv *PrivateKey, hash []byte) ([]byte, error) {
-	maybeReadByte(csprng)
-
-	// A cheap version of hedged signatures, for the deprecated path.
-	var seed [32]byte
-	if _, err := io.ReadFull(csprng, seed[:]); err != nil {
-		return nil, err
-	}
-	for i, b := range priv.D.Bytes() {
-		seed[i%32] ^= b
-	}
-	for i, b := range hash {
-		seed[i%32] ^= b
-	}
-	csprng = rand.NewChaCha8(seed)
-
-	r, s, err := sign(priv, csprng, hash)
+	r, s, err := Sign(csprng, priv, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -147,22 +129,27 @@ func sign(priv *PrivateKey, csprng io.Reader, hash []byte) (r, s *big.Int, err e
 // private key's curve order, the hash will be truncated to that length. It
 // returns the signature as a pair of integers. Most applications should use
 // [SignASN1] instead of dealing directly with r, s.
-func Sign(rand io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
-	sig, err := SignASN1(rand, priv, hash)
+func Sign(csprng io.Reader, priv *PrivateKey, hash []byte) (r, s *big.Int, err error) {
+	maybeReadByte(csprng)
+
+	// A cheap version of hedged signatures
+	var seed [32]byte
+	if _, err := io.ReadFull(csprng, seed[:]); err != nil {
+		return nil, nil, err
+	}
+	for i, b := range priv.D.Bytes() {
+		seed[i%32] ^= b
+	}
+	for i, b := range hash {
+		seed[i%32] ^= b
+	}
+	csprng = rand.NewChaCha8(seed)
+
+	r, s, err = sign(priv, csprng, hash)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	r, s = new(big.Int), new(big.Int)
-	var inner cryptobyte.String
-	input := cryptobyte.String(sig)
-	if !input.ReadASN1(&inner, asn1.SEQUENCE) ||
-		!input.Empty() ||
-		!inner.ReadASN1Integer(r) ||
-		!inner.ReadASN1Integer(s) ||
-		!inner.Empty() {
-		return nil, nil, errors.New("invalid ASN.1 from SignASN1")
-	}
 	return r, s, nil
 }
 
@@ -217,34 +204,6 @@ func (priv *PrivateKey) Equal(x *PrivateKey) bool {
 // return value records whether the signature is valid. Most applications should
 // use VerifyASN1 instead of dealing directly with r, s.
 func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
-	if r.Sign() <= 0 || s.Sign() <= 0 {
-		return false
-	}
-	sig, err := encodeSignature(r.Bytes(), s.Bytes())
-	if err != nil {
-		return false
-	}
-	return VerifyASN1(pub, hash, sig)
-}
-
-func encodeSignature(r, s []byte) ([]byte, error) {
-	var b cryptobyte.Builder
-	b.AddASN1(asn1.SEQUENCE, func(b *cryptobyte.Builder) {
-		addASN1IntBytes(b, r)
-		addASN1IntBytes(b, s)
-	})
-	return b.Bytes()
-}
-
-// VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the
-// public key, pub. Its return value records whether the signature is valid.
-func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
-	rBytes, sBytes, err := parseSignature(sig)
-	if err != nil {
-		return false
-	}
-	r, s := new(big.Int).SetBytes(rBytes), new(big.Int).SetBytes(sBytes)
-
 	c := pub.Curve
 	N := c.Params().N
 
@@ -275,33 +234,14 @@ func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
 	return x.Cmp(r) == 0
 }
 
-func parseSignature(sig []byte) (r, s []byte, err error) {
-	var inner cryptobyte.String
-	input := cryptobyte.String(sig)
-	if !input.ReadASN1(&inner, asn1.SEQUENCE) ||
-		!input.Empty() ||
-		!inner.ReadASN1Integer(&r) ||
-		!inner.ReadASN1Integer(&s) ||
-		!inner.Empty() {
-		return nil, nil, errors.New("invalid ASN.1")
+// VerifyASN1 verifies the ASN.1 encoded signature, sig, of hash using the
+// public key, pub. Its return value records whether the signature is valid.
+func VerifyASN1(pub *PublicKey, hash, sig []byte) bool {
+	rBytes, sBytes, err := parseSignature(sig)
+	if err != nil {
+		return false
 	}
-	return r, s, nil
-}
+	r, s := new(big.Int).SetBytes(rBytes), new(big.Int).SetBytes(sBytes)
 
-// addASN1IntBytes encodes in ASN.1 a positive integer represented as
-// a big-endian byte slice with zero or more leading zeroes.
-func addASN1IntBytes(b *cryptobyte.Builder, bytes []byte) {
-	for len(bytes) > 0 && bytes[0] == 0 {
-		bytes = bytes[1:]
-	}
-	if len(bytes) == 0 {
-		b.SetError(errors.New("invalid integer"))
-		return
-	}
-	b.AddASN1(asn1.INTEGER, func(c *cryptobyte.Builder) {
-		if bytes[0]&0x80 != 0 {
-			c.AddUint8(0)
-		}
-		c.AddBytes(bytes)
-	})
+	return Verify(pub, hash, r, s)
 }
