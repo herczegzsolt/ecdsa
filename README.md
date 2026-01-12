@@ -31,5 +31,5 @@ Quoting the go standard library:
 ## Credits
 
 Majority of the ECDSA implementation is directly reused from the Go Standard Library.
-Support for a != -3 curves is based on the work of (https://github.com/dustinxie)[dustinxie]
-Packing and maintenance is done by (https://github.com/herczegzsolt)[herczegzsolt]
+Support for a != -3 curves is based on the work of [dustinxie](https://github.com/dustinxie).
+Packing and maintenance is done by [herczegzsolt](https://github.com/herczegzsolt).
