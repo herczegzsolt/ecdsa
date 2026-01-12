@@ -2,6 +2,8 @@
 
 Golang native implementation of Elliptic Curves - including secp256k1.
 
+[Documentation](https://pkg.go.dev/github.com/herczegzsolt/ecdsa) on pkg.go.dev
+
 ---
 
 ## Features
