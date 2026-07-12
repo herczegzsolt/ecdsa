@@ -327,7 +327,7 @@ func Marshal(curve Curve, x, y *big.Int) []byte {
 // an error if the point is not in uncompressed form, or is not on the curve.
 // On error, x, y = nil, nil.
 func Unmarshal(curve Curve, data []byte) (x, y *big.Int) {
-	if len(data) == 0 && data[0] == 0x00 { // point at infinity
+	if len(data) == 1 && data[0] == 0x00 { // point at infinity
 		return big.NewInt(0), big.NewInt(0)
 	}
 
@@ -372,7 +372,7 @@ func MarshalCompressed(curve Curve, x, y *big.Int) []byte {
 // an x, y pair. It is an error if the point is not in compressed form or is not
 // on the curve. On error, x, y = nil, nil.
 func UnmarshalCompressed(curve Curve, data []byte) (x, y *big.Int) {
-	if len(data) == 0 && data[0] == 0x00 { // point at infinity
+	if len(data) == 1 && data[0] == 0x00 { // point at infinity
 		return big.NewInt(0), big.NewInt(0)
 	}
 
